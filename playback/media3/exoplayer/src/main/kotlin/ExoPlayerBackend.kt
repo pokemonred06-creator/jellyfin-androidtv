@@ -22,6 +22,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.util.EventLogger
 import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.extractor.ts.TsExtractor
 import androidx.media3.ui.SubtitleView
 import io.github.peerless2012.ass.media.AssHandler
@@ -57,7 +58,7 @@ class ExoPlayerBackend(
 ) : BasePlayerBackend() {
 	companion object {
 		const val TS_SEARCH_BYTES_LM = TsExtractor.TS_PACKET_SIZE * 1800
-		const val TS_SEARCH_BYTES_HM = TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES
+		const val TS_SEARCH_BYTES_HM = TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES * 3
 		const val MEDIA_ITEM_COUNT_MAX = 10
 	}
 
@@ -85,6 +86,10 @@ class ExoPlayerBackend(
 					false -> TS_SEARCH_BYTES_HM
 				}
 			)
+			setTsExtractorFlags(
+				DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS or
+				DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES
+			)
 			setConstantBitrateSeekingEnabled(true)
 			setConstantBitrateSeekingAlwaysEnabled(true)
 		}
@@ -110,6 +115,12 @@ class ExoPlayerBackend(
 			else renderersFactory
 		}
 
+		val targetBufferBytes = when {
+			exoPlayerOptions.maxBufferDuration != null && exoPlayerOptions.maxBufferDuration.inWholeSeconds >= 180 -> 128 * 1024 * 1024
+			exoPlayerOptions.maxBufferDuration != null && exoPlayerOptions.maxBufferDuration.inWholeSeconds >= 90 -> 64 * 1024 * 1024
+			else -> 48 * 1024 * 1024
+		}
+
 		val loadControl = DefaultLoadControl.Builder()
 			.setBufferDurationsMs(
 				exoPlayerOptions.minBufferDuration?.inWholeMilliseconds?.toInt() ?: DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
@@ -117,6 +128,9 @@ class ExoPlayerBackend(
 				exoPlayerOptions.bufferForPlaybackDuration?.inWholeMilliseconds?.toInt() ?: DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
 				exoPlayerOptions.bufferForPlaybackAfterRebufferDuration?.inWholeMilliseconds?.toInt() ?: DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
 			)
+			.setPrioritizeTimeOverSizeThresholds(true)
+			.setTargetBufferBytes(targetBufferBytes)
+			.setBackBuffer(30_000, true)
 			.build()
 
 		ExoPlayer.Builder(context)
@@ -126,7 +140,7 @@ class ExoPlayerBackend(
 				setParameters(buildUponParameters().apply {
 					setAudioOffloadPreferences(
 						TrackSelectionParameters.AudioOffloadPreferences.DEFAULT.buildUpon().apply {
-							setAudioOffloadMode(TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED)
+							setAudioOffloadMode(TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED)
 						}.build()
 					)
 					setAllowInvalidateSelectionsOnRendererCapabilitiesChange(true)

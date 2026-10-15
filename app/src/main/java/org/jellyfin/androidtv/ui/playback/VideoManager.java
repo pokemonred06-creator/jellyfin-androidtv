@@ -41,6 +41,7 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.exoplayer.util.EventLogger;
 import androidx.media3.extractor.DefaultExtractorsFactory;
 import androidx.media3.extractor.ExtractorsFactory;
+import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory;
 import androidx.media3.extractor.ts.TsExtractor;
 import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.CaptionStyleCompat;
@@ -225,7 +226,7 @@ public class VideoManager {
         DefaultTrackSelector trackSelector = new DefaultTrackSelector(context);
         trackSelector.setParameters(trackSelector.buildUponParameters()
                 .setAudioOffloadPreferences(new TrackSelectionParameters.AudioOffloadPreferences.Builder()
-                        .setAudioOffloadMode(TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED)
+                        .setAudioOffloadMode(TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED)
                         .build()
                 )
                 .setAllowInvalidateSelectionsOnRendererCapabilitiesChange(true)
@@ -233,7 +234,12 @@ public class VideoManager {
         );
         exoPlayerBuilder.setTrackSelector(trackSelector);
 
-        DefaultExtractorsFactory extractorsFactory = new DefaultExtractorsFactory().setTsExtractorTimestampSearchBytes(TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES * 3);
+        DefaultExtractorsFactory extractorsFactory = new DefaultExtractorsFactory()
+                .setTsExtractorTimestampSearchBytes(TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES * 3)
+                .setTsExtractorFlags(
+                        DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS |
+                        DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES
+                );
         extractorsFactory.setConstantBitrateSeekingEnabled(true);
         extractorsFactory.setConstantBitrateSeekingAlwaysEnabled(true);
         DefaultDataSource.Factory dataSourceFactory = new DefaultDataSource.Factory(context, exoPlayerHttpDataSourceFactory);
@@ -250,19 +256,20 @@ public class VideoManager {
         }
 
         BufferLength bufferLength = userPreferences.get(UserPreferences.Companion.getBufferLength());
-        DefaultLoadControl loadControl;
+        DefaultLoadControl.Builder loadControlBuilder = new DefaultLoadControl.Builder()
+                .setPrioritizeTimeOverSizeThresholds(true)
+                .setBackBuffer(30_000, true);
+
         if (bufferLength == BufferLength.LARGE) {
-            loadControl = new DefaultLoadControl.Builder()
-                    .setBufferDurationsMs(50_000, 120_000, 2_500, 5_000)
-                    .build();
+            loadControlBuilder.setBufferDurationsMs(50_000, 120_000, 2_500, 5_000)
+                    .setTargetBufferBytes(64 * 1024 * 1024);
         } else if (bufferLength == BufferLength.EXTRA_LARGE) {
-            loadControl = new DefaultLoadControl.Builder()
-                    .setBufferDurationsMs(80_000, 240_000, 5_000, 10_000)
-                    .build();
+            loadControlBuilder.setBufferDurationsMs(80_000, 240_000, 5_000, 10_000)
+                    .setTargetBufferBytes(128 * 1024 * 1024);
         } else {
-            loadControl = new DefaultLoadControl();
+            loadControlBuilder.setTargetBufferBytes(48 * 1024 * 1024);
         }
-        exoPlayerBuilder.setLoadControl(loadControl);
+        exoPlayerBuilder.setLoadControl(loadControlBuilder.build());
 
         exoPlayerBuilder.setAudioAttributes(new AudioAttributes.Builder()
                 .setUsage(C.USAGE_MEDIA)
